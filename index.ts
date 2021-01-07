@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import { bisector, group, pointer } from 'd3';
+import { bisector, D3BrushEvent, group, pointer } from 'd3';
 // import 'd3-array';
 // import 'd3-brush';
 // import 'd3-force';
@@ -63,9 +63,6 @@ const mainGroup = svg
     .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
 
-
-
-
 const xScaleLinear = d3.scaleLinear()
     .domain([0, dataset.length])
     .range([0, width]);
@@ -76,7 +73,10 @@ const yScaleLinear = d3.scaleLinear()
 
 const line = d3.line<Point>()
     // .curve(d3.curveBasis)
-    .x(d => xScaleLinear(d.x)).y(d => yScaleLinear(d.y)) as any;
+    .x(d => xScaleLinear(d.x)).y(d => yScaleLinear(d.y));
+const resetLine = () => {
+    line.x(d => xScaleLinear(d.x));
+}
 
 mainGroup.append('path')
     .datum(dataset)
@@ -90,7 +90,7 @@ const selectedPath = mainGroup.append('path')
     .attr('stroke', '#00ff00')
     .attr('stroke-width', 2)
     .attr('d', line);
-    
+
 mainGroup.selectAll("circle")
     .data(dataset)
     .enter()
@@ -101,110 +101,52 @@ mainGroup.selectAll("circle")
 
 
 // soldaki tickleri açıyor
-mainGroup.append("g").call(d3.axisLeft(yScaleLinear).ticks(10));
+const yAxis = mainGroup.append("g").call(d3.axisLeft(yScaleLinear).ticks(10));
 // alttaki tickleri açıyor...
-mainGroup.append("g")
+
+const xAxis = mainGroup.append("g")
     .attr('transform', `translate(0, ${height})`)
     .call(d3.axisBottom(xScaleLinear).ticks(10));
+const resetXAxis = () => {
 
-let rect: d3.Selection<SVGRectElement, any, HTMLElement, any> = null;
-
-const selectionPayload = {
-    isSelection: false,
-    leftXValue: 0,
-    rightXValue: 0,
+    xAxis.transition().duration(400).attr('transform', `translate(0, ${height})`)
+        .call(d3.axisBottom(xScaleLinear).ticks(10))
 }
+
 const bisectorFunction = d3.bisector<Point, any>(d => d.x).left;
-const getMainGroupPointFromEvent = (e: MouseEvent): number[] => {
-    return d3.pointer(e);
-}
-// const getLeftPointDataFromEvent = (e: MouseEvent): Point => {
-//     const [x, y] = d3.pointer(e);
-//     const value = xScaleLinear.invert(x);
-//     const leftValueIndex = bisectorFunction(dataset, value, 0);
-//     // console.log(x, value, leftValueIndex);
-//     const point = dataset[leftValueIndex];
 
-//     if (!point) {
-//         return null;
-//     }
-//     console.log('x', point.x);
-//     return point
-// }
-
-
-
-const selectionRect = mainGroup.append('rect')
-    .attr('opacity', '0')
-    .attr('width', width)
-    .attr('height', height)
-    .attr('x', 0)
-    .attr('y', 0)
-    .attr('pointer-event', 'none');
-
-const updateSelection = () => {
-    const w = selectionPayload.rightXValue - selectionPayload.leftXValue;
-    if (w < 1) {
+const updateChart = (event: D3BrushEvent<number[]>) => {
+    if (!Array.isArray(event.selection) || event.selection.length !== 2) {
+        selectedPath.datum([])
+            .attr('d', line);
         return;
     }
-    selectionRect
-        .attr('x', selectionPayload.leftXValue)
-        .attr('width', w);
-    const xValue1 = xScaleLinear.invert(selectionPayload.leftXValue);
-    const xValue2 = xScaleLinear.invert(selectionPayload.rightXValue);
+    const [left, right] = event.selection as number[];
+
+    const xValue1 = xScaleLinear.invert(left);
+    const xValue2 = xScaleLinear.invert(right);
     const index1 = bisectorFunction(dataset, xValue1);
     const index2 = bisectorFunction(dataset, xValue2);
     const selectedDataset = dataset.slice(index1, index2)
+
     selectedPath.datum(selectedDataset)
         .attr('d', line);
-}
 
-const mouseMove = (e: MouseEvent) => {
-    if (!selectionPayload.isSelection) {
-        return;
-    }
-    const point = getMainGroupPointFromEvent(e);
-    if (point === null) {
-        return;
-    }
-    selectionPayload.rightXValue = point[0];
-    updateSelection();
+    xScaleLinear.domain([xScaleLinear.invert(left), xScaleLinear.invert(right)])
+    resetXAxis();
+    resetLine();
+}
+const brush = d3.brushX()
+    .extent([[0, 0], [width, height]])
+    .on('end', updateChart);
 
-}
-
-const mouseUp = (e: MouseEvent) => {
-    const point = getMainGroupPointFromEvent(e);
-    if (point === null) {
-        return;
-    }
-    selectionPayload.isSelection = false;
-    selectionPayload.rightXValue = point[0];
-    updateSelection();
-    selectionRect.attr('opacity', '0')
-}
-const mouseDown = (e: MouseEvent) => {
-    const point = getMainGroupPointFromEvent(e);
-    if (point === null) {
-        return;
-    }
-    selectionPayload.isSelection = true;
-    selectionPayload.leftXValue = point[0];
-    selectionPayload.rightXValue = point[0] + 1.1;
-    selectionRect.attr('opacity', '0.3');
-    updateSelection();
-}
-rect = mainGroup.append('rect')
-    // .attr('fill', 'rgba(0, 0, 255, 0.3)')
+mainGroup.append('g')
+    .attr('fill', 'rgba(0, 0, 255, 0.3)')
     // .attr('fill', 'rgba(0, 0, 255, 1)')
     // .attr('fill', 'none')
-    .attr('opacity', '0')
     .attr('width', width)
     .attr('height', height)
     .attr('x', 0)
     .attr('y', 0)
     .attr('pointer-event', 'all')
-    .on('mousemove', mouseMove)
-    // .on('mouseover', mouseOver)
-    // .on('mouseout', mouseOut)
-    .on('mouseup', mouseUp)
-    .on('mousedown', mouseDown)
+    .call(brush);
